@@ -42,8 +42,12 @@ Then change into the acados directory
 cd external/acados
 ```
 
-and build it as described in the [acados documentation](https://docs.acados.org/installation/index.html). When running the
-`cmake` command, make sure to include the options `-DACADOS_WITH_OPENMP=ON`, `-DACADOS_PYTHON=ON` and `-DACADOS_NUM_THREADS=1`.
+and build it as described in the [acados documentation](https://docs.acados.org/installation/index.html). Note, that when using macOS, you might need to install a compiler that allows to use OpenMP. You can find the instructions [here](#openmp-macos).
+
+When running the `cmake` command, make sure to include the right flags:
+```bash
+cmake -DACADOS_WITH_OPENMP=ON -DACADOS_PYTHON=ON -DACADOS_NUM_THREADS=1 ..
+
 Afterwards, install the [python interface](https://docs.acados.org/python_interface/index.html) of acados.
 
 #### PyTorch
@@ -116,3 +120,33 @@ pre-commit install
 ```
 
 Done! Now every commit will automatically be linted and formatted.
+
+## Installing acados with OpenMP on macOS {#openmp-macos}
+
+The standard `clang` compiler on macOS does not support OpenMP. Here, we solve this problem by installing `gcc` and make it the default compiler for `acados`. Using OpenMP allows for parallelization, which can significantly speed up computations, for solving batches of optimal control problems.
+
+### 1. Make gcc your default compiler for acados
+
+First, install `gcc` using Homebrew. If you do not have Homebrew installed, you can find instructions [here](https://brew.sh/).
+
+```bash
+# Install gcc via Homebrew
+brew install gcc
+```
+
+Next we link the `gcc` compiler to `cc` and `c++` so that acados uses `gcc` instead of the default `clang` compiler.
+
+```bash
+brew link gcc
+# you might need to force it
+# brew link gcc --overwrite --force
+```
+
+### 2. Set environment variables
+
+Set in your shell configuration file `.bashrc`, `zshrc`, etc. the following environment variables to point to the installed `gcc` compiler. Adjust the version number (`gcc-15` and `g++-15`) if a different version is installed. You also might need to check whether the path `/opt/homebrew/bin/` is correct for your Homebrew installation:
+
+```bash
+export CC="/opt/homebrew/bin/gcc-15"
+export CXX="/opt/homebrew/bin/g++-15"
+```
