@@ -1,0 +1,50 @@
+<mujoco model="cartpole_swingup">
+  <!-- Cart-pole model optimized for MPC, based on dm_control design -->
+  <compiler angle="radian"/>
+  
+  <option timestep="0.01" integrator="Euler" gravity="0 0 -9.81">
+    <flag contact="disable"/>
+  </option>
+  
+  <default>
+    <geom material="default"/>
+  </default>
+  
+  <asset>
+    <material name="default" rgba="0.7 0.5 0.3 1"/>
+  </asset>
+  
+  <worldbody>
+    <light name="top" pos="0 0 3"/>
+    <geom name="floor" pos="0 0 -0.05" type="plane" size="2 2 0.1" rgba="0.9 0.9 0.9 1" material=""/>
+    
+    <!-- Visualization rails (like dm_control) -->
+    <geom name="rail1" type="capsule" pos="0 0.07 1" zaxis="1 0 0" size="0.015 1.5" rgba="0.3 0.3 0.3 1" material=""/>
+    <geom name="rail2" type="capsule" pos="0 -0.07 1" zaxis="1 0 0" size="0.015 1.5" rgba="0.3 0.3 0.3 1" material=""/>
+    
+    <!-- Cart on rail -->
+    <body name="cart" pos="0 0 1">
+      <!-- Slider joint with very small damping like dm_control -->
+      <joint name="slider" type="slide" axis="1 0 0" limited="true" range="-1.5 1.5" 
+             damping="0.0005" solreflimit="0.08 1"/>
+      
+      <!-- Cart body: mass=1, dimensions from dm_control -->
+      <geom name="cart" type="box" size="0.2 0.15 0.1" mass="1.0"/>
+      
+      <!-- Pole attached to cart -->
+      <body name="pole" pos="0 0 0">
+        <!-- Hinge joint with very small damping (dm_control uses 2e-6) -->
+        <joint name="hinge" type="hinge" axis="0 1 0" damping="2e-6"/>
+        
+        <!-- Pole: capsule from (0,0,0) to (0,0,1), radius=0.045, mass=0.1 like dm_control -->
+        <geom name="pole" type="capsule" fromto="0 0 0 0 0 1" size="0.045" mass="0.1"/>
+      </body>
+    </body>
+  </worldbody>
+  
+  <actuator>
+    <!-- Motor with gear=10, control range [-1, 1] like dm_control -->
+    <!-- This means actual force range is [-10, 10] N -->
+    <motor name="slide" joint="slider" gear="10" ctrllimited="true" ctrlrange="-1 1"/>
+  </actuator>
+</mujoco>
