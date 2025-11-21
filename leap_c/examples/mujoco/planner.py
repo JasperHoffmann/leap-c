@@ -1,8 +1,14 @@
+import ctypes
+import glob
+import os
+import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
+from leap_c.examples.mujoco import MUJOCO_HEADER, MUJOCO_SOURCE
 from leap_c.examples.mujoco.acados_ocp import (
     MujocoAcadosCostType,
     MujocoAcadosParamInterface,
@@ -81,7 +87,23 @@ class MujocoAcadosPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
                 system will be created based on the cfg.
             export_directory: Directory to export the acados ocp files.
         """
+        print(f"Model: {model_path}")
+        print("Model dimensions:")
+        print(f"nq (positions): {nq}")
+        print(f"nv (velocities): {nv}")
+        print(f"nu (actuators): {nu}")
+        print()
+        print(f"Control bounds: u_min={u_min}, u_max={u_max}")
+        print()
+
         self.cfg = MujocoControllerConfig() if cfg is None else cfg
+        print(
+            f"Horizon: N={self.cfg.N_horizon}, T={self.cfg.T_horizon}s "
+            f"(dt={self.cfg.T_horizon / self.cfg.N_horizon}s)"
+        )
+        print(f"Cost type: {self.cfg.cost_type}")
+        print()
+
         params = (
             create_mujoco_params(
                 nq=nq,
@@ -99,6 +121,21 @@ class MujocoAcadosPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
             N_horizon=self.cfg.N_horizon,  # type:ignore
         )
 
+        print(f"Learnable parameters: {list(param_manager.learnable_parameters.keys())}")
+        print(f"Non-learnable parameters: {list(param_manager.non_learnable_parameters.keys())}")
+        print()
+
+        # Copy the MuJoCo C source and header to current directory to avoid file conflicts
+        # Acados expects the generic source file to be in the current directory
+        local_source = Path("leapc_mujoco.c")
+        local_header = Path("leapc_mujoco.h")
+        if not local_source.exists() or local_source.resolve() != Path(MUJOCO_SOURCE).resolve():
+            print(f"  Copying {MUJOCO_SOURCE} to {local_source}")
+            shutil.copy2(MUJOCO_SOURCE, local_source)
+        if not local_header.exists() or local_header.resolve() != Path(MUJOCO_HEADER).resolve():
+            print(f"  Copying {MUJOCO_HEADER} to {local_header}")
+            shutil.copy2(MUJOCO_HEADER, local_header)
+
         ocp = export_mujoco_ocp(
             param_manager=param_manager,
             model_path=model_path,
@@ -110,8 +147,71 @@ class MujocoAcadosPlanner(AcadosPlanner[AcadosDiffMpcCtx]):
             nlp_solver_max_iter=self.cfg.max_iter,
         )
 
+        # Set environment variables for MuJoCo include and library paths
+        # This ensures the generated Makefile/CMake can find MuJoCo headers and libraries
+        import mujoco as mj_module
+
+        mujoco_path = Path(mj_module.__file__).parent
+
+        # Add MuJoCo include path to CPPFLAGS (used by make's implicit rules)
+        current_cppflags = os.environ.get("CPPFLAGS", "")
+        # Add both MuJoCo include and absolute path to current directory (for leapc_mujoco.h)
+        current_dir = Path.cwd()
+        mujoco_include = f"-I{mujoco_path / 'include'}"
+        current_include = f"-I{current_dir}"
+        os.environ["CPPFLAGS"] = f"{current_cppflags} {mujoco_include} {current_include}".strip()
+
+        # Also set CFLAGS for CMake builds
+        current_cflags = os.environ.get("CFLAGS", "")
+        os.environ["CFLAGS"] = f"{current_cflags} -I{mujoco_path / 'include'}".strip()
+
+        # Add MuJoCo library path to LDFLAGS
+        # Find the actual library file (may be versioned like libmujoco.3.3.2.dylib)
+        mujoco_libs = glob.glob(str(mujoco_path / "libmujoco*.dylib"))
+        if not mujoco_libs:
+            mujoco_libs = glob.glob(str(mujoco_path / "libmujoco*.so"))
+
+        if mujoco_libs:
+            mujoco_lib = mujoco_libs[0]
+            current_ldflags = os.environ.get("LDFLAGS", "")
+            os.environ["LDFLAGS"] = f"{current_ldflags} {mujoco_lib}".strip()
+        else:
+            print("  Warning: MuJoCo library not found!")
+            current_ldflags = os.environ.get("LDFLAGS", "")
+            os.environ["LDFLAGS"] = f"{current_ldflags} -L{mujoco_path} -lmujoco".strip()
+
+        # For runtime library loading on macOS
+        if sys.platform == "darwin":
+            current_dyld = os.environ.get("DYLD_LIBRARY_PATH", "")
+            paths = [str(mujoco_path)]
+            if current_dyld:
+                paths.append(current_dyld)
+            os.environ["DYLD_LIBRARY_PATH"] = ":".join(paths)
+
+        print(f"MuJoCo path: {mujoco_path}")
+        print(f"CPPFLAGS: {os.environ['CPPFLAGS']}")
+        print(f"LDFLAGS: {os.environ['LDFLAGS']}")
+        print()
+
         diff_mpc = AcadosDiffMpcTorch(
             ocp,
             export_directory=export_directory,
         )
+
+        # Load the shared library
+        lib_path = diff_mpc.diff_mpc_fun.forward_batch_solver.ocp_solvers[0].shared_lib_name
+        acados_lib = ctypes.CDLL(lib_path)
+
+        # Define function signature
+        # NOTE: This function is defined in leapc_mujoco.c
+        acados_lib.acados_mujoco_init.argtypes = [ctypes.c_char_p]
+        acados_lib.acados_mujoco_init.restype = ctypes.c_int
+
+        # Call initialization
+        result = acados_lib.acados_mujoco_init(str(model_path).encode("utf-8"))
+        if result != 0:
+            raise RuntimeError(f"acados_mujoco_init failed with code {result}")
+        print(f"  MuJoCo initialized with model: {model_path}")
+        print()
+
         super().__init__(param_manager=param_manager, diff_mpc=diff_mpc)
