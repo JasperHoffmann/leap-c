@@ -9,7 +9,7 @@ Example:
     >>> from pathlib import Path
     >>> from leap_c.examples.mujoco.acados_ocp import create_mujoco_params, export_mujoco_ocp
     >>> from leap_c.ocp.acados.parameters import AcadosParameterManager
-    >>> 
+    >>>
     >>> model_path = Path("test_model.xml")
     >>> params = create_mujoco_params(nq=1, nv=1, nu=1)
     >>> param_manager = AcadosParameterManager(params, N_horizon=50)
@@ -140,7 +140,7 @@ def create_mujoco_params(
 def export_mujoco_ocp(
     param_manager: AcadosParameterManager,
     model_path: Path | str,
-    cost_type: MujocoAcadosCostType = "EXTERNAL",
+    cost_type: MujocoAcadosCostType = "NONLINEAR_LS",
     name: str = "mujoco",
     N_horizon: int = 20,
     T_horizon: float = 1.0,
@@ -149,7 +149,6 @@ def export_mujoco_ocp(
     u_max: np.ndarray | None = None,
     qp_solver: str = "PARTIAL_CONDENSING_HPIPM",
     nlp_solver_max_iter: int = 200,
-    code_export_directory: str | None = None,
 ) -> AcadosOcp:
     """Export a parametric Acados OCP for MuJoCo dynamics.
 
@@ -170,8 +169,6 @@ def export_mujoco_ocp(
         u_max: Upper bounds on control inputs. If None, no upper bounds.
         qp_solver: QP solver to use (default: PARTIAL_CONDENSING_HPIPM).
         nlp_solver_max_iter: Maximum number of SQP iterations.
-        code_export_directory: Directory for generated code. If None, uses
-            "c_generated_code_{name}".
 
     Returns:
         Configured AcadosOcp object ready for solver generation.
@@ -284,6 +281,7 @@ def export_mujoco_ocp(
     ocp.solver_options.qp_solver = qp_solver
     ocp.solver_options.nlp_solver_max_iter = nlp_solver_max_iter
     ocp.solver_options.tol = 1e-6
+    ocp.solver_options.qp_tol = 1e-8
     ocp.solver_options.print_level = 0
 
     # Add MuJoCo include and library paths for compilation
@@ -294,10 +292,10 @@ def export_mujoco_ocp(
         import mujoco
 
         mujoco_path = Path(mujoco.__file__).parent
-        
+
         # Add MuJoCo include path
         ocp.model.dyn_ext_fun_compile_flags = f"-I{mujoco_path / 'include'}"
-        
+
         # Add MuJoCo library path (for macOS)
         if sys.platform == "darwin":
             lib_ext = "dylib"
@@ -305,22 +303,18 @@ def export_mujoco_ocp(
             lib_ext = "so"
         else:
             lib_ext = "dll"
-        
+
         mujoco_lib = mujoco_path / f"libmujoco.{lib_ext}"
         if not mujoco_lib.exists():
             # Try versioned library
             import glob
+
             libs = glob.glob(str(mujoco_path / f"libmujoco.*.{lib_ext}"))
             if libs:
                 mujoco_lib = Path(libs[0])
-        
+
         ocp.model.dyn_ext_fun_link_flags = f"-L{mujoco_path} -lmujoco"
     except ImportError:
         print("Warning: MuJoCo not found. Make sure it's installed for compilation.")
-
-    # Set code export directory
-    if code_export_directory is None:
-        code_export_directory = f"c_generated_code_{name}"
-    ocp.code_export_directory = code_export_directory
 
     return ocp
