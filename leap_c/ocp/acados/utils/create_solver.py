@@ -117,7 +117,7 @@ def create_forward_backward_batch_solvers(
     # check if we can use the forward solver for the backward pass.
     need_backward_solver = _check_need_sensitivity_solver(ocp)
 
-    if need_backward_solver:
+    if not need_backward_solver:
         ocp.solver_options.with_solution_sens_wrt_params = True
         ocp.solver_options.with_value_sens_wrt_params = True
 
@@ -136,6 +136,8 @@ def create_forward_backward_batch_solvers(
         # NOTE: Use the ocp from an already compiled solver
         # to hopefully avoid problems with deepcopy
         sensitivity_ocp = deepcopy(forward_batch_solver.ocp_solvers[0].acados_ocp)  # type:ignore
+        sensitivity_ocp.solver_options.with_solution_sens_wrt_params = True  # type:ignore
+        sensitivity_ocp.solver_options.with_value_sens_wrt_params = True  # type:ignore
         make_ocp_sensitivity_compatible(sensitivity_ocp)  # type:ignore
 
     sensitivity_ocp.model.name += "_sensitivity"  # type:ignore
