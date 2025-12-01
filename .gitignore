@@ -182,7 +182,7 @@ test/mini_example.py
 test.gin
 
 # Acados generated stuff (json files, c_generated_code)
-# *.json
+*.json
 c_generated_code
 
 # Logs and videos
