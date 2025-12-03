@@ -25,16 +25,16 @@ def create_cfg(env: str, controller: str, seed: int) -> RunSacZopConfig:
     cfg = RunSacZopConfig()
     cfg.env = env
     cfg.controller = controller if controller is not None else env
-    cfg.extractor = "identity" if env != "hvac" else "scaling"
+    cfg.extractor = "identity" if env != "hvac" else "hvac"
 
     # ---- Section: cfg.trainer ----
     cfg.trainer.seed = seed
     cfg.trainer.train_steps = 1_000_000 if env == "pointmass" else 200_000
     cfg.trainer.train_start = 0
-    cfg.trainer.val_freq = 10_000
-    cfg.trainer.val_num_rollouts = 20
+    cfg.trainer.val_freq = 50_000
+    cfg.trainer.val_num_rollouts = 40
     cfg.trainer.val_deterministic = True
-    cfg.trainer.val_num_render_rollouts = 1
+    cfg.trainer.val_num_render_rollouts = 0
     cfg.trainer.val_render_mode = "rgb_array"
     cfg.trainer.val_report_score = "cum"
     cfg.trainer.ckpt_modus = "best"
@@ -47,8 +47,8 @@ def create_cfg(env: str, controller: str, seed: int) -> RunSacZopConfig:
     cfg.trainer.lr_pi = 0.001
     cfg.trainer.lr_alpha = 0.001
     cfg.trainer.init_alpha = 0.02
-    cfg.trainer.target_entropy = None
-    cfg.trainer.entropy_reward_bonus = True
+    cfg.trainer.target_entropy = -4
+    cfg.trainer.entropy_reward_bonus = False
     cfg.trainer.num_critics = 2
     cfg.trainer.update_freq = 4
 
@@ -62,7 +62,7 @@ def create_cfg(env: str, controller: str, seed: int) -> RunSacZopConfig:
     cfg.trainer.log.wandb_init_kwargs = {}
 
     # ---- Section: cfg.trainer.critic_mlp ----
-    cfg.trainer.critic_mlp.hidden_dims = (256, 256, 256)
+    cfg.trainer.critic_mlp.hidden_dims = (512, 512, 512)
     cfg.trainer.critic_mlp.activation = "relu"
     cfg.trainer.critic_mlp.weight_init = "orthogonal"
 
@@ -75,7 +75,7 @@ def create_cfg(env: str, controller: str, seed: int) -> RunSacZopConfig:
 
     # ---- Section: cfg.trainer.actor.mlp ----
     cfg.trainer.actor.mlp.hidden_dims = (256, 256, 256)
-    cfg.trainer.actor.mlp.activation = "relu"
+    cfg.trainer.actor.mlp.activation = "leaky_relu"
     cfg.trainer.actor.mlp.weight_init = "orthogonal"
 
     return cfg
