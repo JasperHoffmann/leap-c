@@ -71,10 +71,10 @@ class ForecastConfig:
     horizon_hours: int = 24  # prediction horizon in hours
     temp_uncertainty: (
         TemperatureUncertaintyConfig | Literal["low", "medium", "high", "negative_bias"] | None
-    ) = "negative_bias"
+    ) = None 
     solar_uncertainty: (
         SolarUncertaintyConfig | Literal["low", "medium", "high", "negative_bias"] | None
-    ) = "negative_bias"
+    ) = None
 
     def __post_init__(self):
         """Resolve string literals to actual config objects."""
@@ -140,7 +140,7 @@ class Forecaster:
         dataset: HvacDataset,
         N_forecast: int,
         np_random,
-        historical_data_bias: bool = False,
+        historical_data_bias: bool = True,
     ) -> dict[str, np.ndarray]:
         """Generate both temperature and solar forecasts.
 
