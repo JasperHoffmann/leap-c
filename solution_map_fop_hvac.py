@@ -99,10 +99,10 @@ def plot_solution_map(
         # Store control value (u0 is qh - heater power at next step)
         u0_values[i] = u0.detach().cpu().numpy().flatten()[0]
 
-        # Compute derivative du0/dp using the sensitivity from the solver
-        du0_dp = planner.sensitivity(ctx, "du0_dp")
-        if du0_dp is not None and du0_dp.size > 0:
-            du0_dp_values[i] = du0_dp.flatten()[param_idx]
+        # Compute derivative du0/dp using the sensitivity from the solver by backward pass
+        u0.backward()
+        du0_dp = param.grad[0, param_idx].detach().cpu().numpy()
+        du0_dp_values[i] = du0_dp
         
         # Store last context and trajectories (at default parameter value)
         if i == n_points // 2:  # Middle of parameter range
