@@ -30,6 +30,8 @@ class HvacEnvConfig:
         randomize_params: Whether to randomize thermal parameters.
         param_noise_scale: Scale for parameter randomization.
         random_seed: Seed for parameter randomization.
+        normalize_energy_reward: Whether to subtract mean price (control variate) from
+            energy reward for variance reduction during training.
     """
 
     thermal_params: HydronicParameters | None = None
@@ -38,6 +40,7 @@ class HvacEnvConfig:
     randomize_params: bool = True
     param_noise_scale: float = 0.3
     random_seed: int = 0
+    normalize_energy_reward: bool = False
 
 
 class StochasticThreeStateRcEnv(MatplotlibRenderEnv):
@@ -216,6 +219,9 @@ class StochasticThreeStateRcEnv(MatplotlibRenderEnv):
         self.step_counter = 0
         self.idx = 0
 
+        # Mean price for control variate (computed on reset)
+        self.mean_price_normalized = 0.0
+
         self.trajectory_plots = None
 
     def _get_observation(self) -> np.ndarray:
@@ -279,7 +285,21 @@ class StochasticThreeStateRcEnv(MatplotlibRenderEnv):
         energy_consumption_normalized = np.abs(action[0]) / self.max_power
 
         price_normalized = price / self.dataset.max["price"]
-        energy_reward = -50 * price_normalized * energy_consumption_normalized
+        
+        # True energy reward (for reporting)
+        energy_reward_true = -50 * price_normalized * energy_consumption_normalized
+        
+        # Apply control variate if enabled (subtract mean price for variance reduction)
+        if self.cfg.normalize_energy_reward:
+            centered_price = price_normalized - self.mean_price_normalized
+            energy_reward = -50 * centered_price * energy_consumption_normalized
+        else:
+            energy_reward = energy_reward_true
+
+        # Compute actual money spent: energy (kWh) * price (currency/kWh)
+        # action is in Watts, step_size in seconds -> energy in kWh = W * s / 3600 / 1000
+        energy_kwh = np.abs(action[0]) * self.cfg.step_size / 3600 / 1000
+        money_spent = energy_kwh * price
 
         # scale energy_reward
         reward = comfort_reward + energy_reward
@@ -287,8 +307,11 @@ class StochasticThreeStateRcEnv(MatplotlibRenderEnv):
         reward_info = {
             "prize": price,
             "energy": np.abs(action[0]),
+            "energy_kwh": energy_kwh,
+            "money_spent": money_spent,
             "comfort_reward": comfort_reward,
             "energy_reward": energy_reward,
+            "energy_reward_true": energy_reward_true,
             "success": success,
             "constraint_violation": constraint_violation,
         }
@@ -381,6 +404,11 @@ class StochasticThreeStateRcEnv(MatplotlibRenderEnv):
         )
 
         self.step_counter = 0
+
+        # Compute mean price for control variate over the episode window
+        if self.cfg.normalize_energy_reward:
+            episode_prices = self.dataset.get_price(idx=self.idx, horizon=self.max_steps)
+            self.mean_price_normalized = np.mean(episode_prices) / self.dataset.max["price"]
 
         if state_0 is None:
             Ti_ss = self.np_random.uniform(
