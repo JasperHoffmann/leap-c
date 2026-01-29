@@ -44,18 +44,18 @@ def create_cfg(
     cfg.trainer.val_render_mode = "rgb_array"
     cfg.trainer.val_report_score = "cum"
     cfg.trainer.ckpt_modus = ckpt_modus
-    cfg.trainer.batch_size = 64
+    cfg.trainer.batch_size = 256
     cfg.trainer.buffer_size = 1_000_000
-    cfg.trainer.gamma = 0.99
+    cfg.trainer.gamma = 0.995
     cfg.trainer.tau = 0.005
     cfg.trainer.soft_update_freq = 1
     cfg.trainer.lr_q = 0.001
     cfg.trainer.lr_pi = 0.001
     cfg.trainer.lr_alpha = 0.001
-    cfg.trainer.init_alpha = 0.02
+    cfg.trainer.init_alpha = 1.0
     cfg.trainer.target_entropy = None
     cfg.trainer.entropy_reward_bonus = True
-    cfg.trainer.num_critics = 2
+    cfg.trainer.num_critics = 10
     cfg.trainer.update_freq = 4
 
     if env == "hvac":
@@ -75,7 +75,7 @@ def create_cfg(
     cfg.trainer.log.wandb_init_kwargs = {}
 
     # ---- Section: cfg.trainer.critic_mlp ----
-    cfg.trainer.critic_mlp.hidden_dims = (256, 256, 256)
+    cfg.trainer.critic_mlp.hidden_dims = (512, 512, 512)
     cfg.trainer.critic_mlp.activation = "relu"
     cfg.trainer.critic_mlp.weight_init = "orthogonal"
 

@@ -125,8 +125,8 @@ class HvacExtractor(Extractor):
 
     The forecasts are stacked as channels and processed with 1D convolutions.
     Time features are embedded using sin/cos transformations. State features are
-    normalized. The electricity price forecast is normalized per-instance, with
-    its mean and scale reported as additional features.
+    normalized. All forecasts are normalized per-instance, with their mean and
+    scale reported as additional features (6 total: 2 per forecast).
     """
 
     def __init__(
@@ -171,8 +171,8 @@ class HvacExtractor(Extractor):
         self.forecast_pool = nn.AdaptiveAvgPool1d(1)
         self.forecast_linear = nn.Linear(channels[-1], self.cfg.output_dim)
 
-        # Output: time (4) + state (3) + forecast features + price stats (2)
-        self._output_size = 4 + 3 + self.cfg.output_dim + 2
+        # Output: time (4) + state (3) + forecast features + forecast stats (6: mean/std for each of 3 forecasts)
+        self._output_size = 4 + 3 + self.cfg.output_dim + 6
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Extract features from HVAC observations.
@@ -211,29 +211,34 @@ class HvacExtractor(Extractor):
         solar_forecast = x[:, 5 + n : 5 + 2 * n]
         price_forecast = x[:, 5 + 2 * n : 5 + 3 * n]
 
-        # Price forecast: normalize per instance and extract mean/std
+        # Normalize each forecast per instance and extract mean/std
+        # Temperature forecast
+        temp_mean = temp_forecast.mean(dim=1, keepdim=True)
+        temp_std = temp_forecast.std(dim=1, keepdim=True) + 1e-8
+        temp_forecast_norm = (temp_forecast - temp_mean) / temp_std
+
+        temp_low, temp_high = obs_space.low[5], obs_space.high[5]
+        temp_mean_norm = (temp_mean - temp_low) / (temp_high - temp_low + 1e-8)
+        temp_std_norm = temp_std / (temp_high - temp_low + 1e-8)
+
+        # Solar forecast
+        solar_mean = solar_forecast.mean(dim=1, keepdim=True)
+        solar_std = solar_forecast.std(dim=1, keepdim=True) + 1e-8
+        solar_forecast_norm = (solar_forecast - solar_mean) / solar_std
+
+        solar_low, solar_high = obs_space.low[5 + n], obs_space.high[5 + n]
+        solar_mean_norm = (solar_mean - solar_low) / (solar_high - solar_low + 1e-8)
+        solar_std_norm = solar_std / (solar_high - solar_low + 1e-8)
+
+        # Price forecast
         price_mean = price_forecast.mean(dim=1, keepdim=True)
         price_std = price_forecast.std(dim=1, keepdim=True) + 1e-8
         price_forecast_norm = (price_forecast - price_mean) / price_std
 
-        # Normalize price_mean and price_std using global bounds
         p_low = obs_space.low[5 + 2 * n]
         p_high = obs_space.high[5 + 2 * n]
         price_mean_norm = (price_mean - p_low) / (p_high - p_low + 1e-8)
-        price_std_norm = price_std / (p_high - p_low + 1e-8)  # Scale relative to range
-
-        # Other forecasts: global min-max normalization
-        temp_low, temp_high = obs_space.low[5], obs_space.high[5]
-        solar_low, solar_high = (
-            obs_space.low[5 + n],
-            obs_space.high[5 + n],
-        )
-
-        temp_forecast_norm = (temp_forecast - temp_low) / (temp_high - temp_low + 1e-8)
-        solar_forecast_norm = (solar_forecast - solar_low) / (solar_high - solar_low + 1e-8)
-
-        temp_forecast_norm = (temp_forecast - temp_low) / (temp_high - temp_low + 1e-8)
-        solar_forecast_norm = (solar_forecast - solar_low) / (solar_high - solar_low + 1e-8)
+        price_std_norm = price_std / (p_high - p_low + 1e-8)
 
         # Stack as channels: (batch, 3, n_forecast)
         forecasts = torch.stack(
@@ -251,6 +256,10 @@ class HvacExtractor(Extractor):
                 time_embedding,
                 state_norm,
                 forecast_features,
+                temp_mean_norm,
+                temp_std_norm,
+                solar_mean_norm,
+                solar_std_norm,
                 price_mean_norm,
                 price_std_norm,
             ],

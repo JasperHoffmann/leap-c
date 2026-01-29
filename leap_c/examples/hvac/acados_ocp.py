@@ -43,6 +43,8 @@ def make_default_hvac_params(
         Tuple of AcadosParameter objects for the HVAC system.
     """
     hydronic_params = HydronicParameters() if hydronic_params is None else hydronic_params
+    # hydronic_params.dynamics.gAw *= 0.7
+    # hydronic_params.dynamics.Rea *= 10
 
     params = [
         AcadosParameter(
@@ -159,8 +161,8 @@ def make_default_hvac_params(
         [
             AcadosParameter(
                 name="q_Ti",
-                default=np.array([0.2]),  # weight for indoor temperature residuals
-                space=gym.spaces.Box(low=np.array([0.01]), high=np.array([0.55]), dtype=np.float64),
+                default=np.array([-1.9]),  # weight for indoor temperature residuals
+                space=gym.spaces.Box(low=np.array([-2.]), high=np.array([1.]), dtype=np.float64),
                 interface="learnable",
                 end_stages=end_stages,
             ),
@@ -247,7 +249,7 @@ def export_parametric_ocp(
     ocp.cost.cost_type = "EXTERNAL"
     ocp.model.cost_expr_ext_cost = (
         0.25 * param_manager.get("price") * qh
-        + param_manager.get("q_Ti") * (param_manager.get("ref_Ti") - ocp.model.x[0]) ** 2
+        + 10 ** param_manager.get("q_Ti") * (param_manager.get("ref_Ti") - ocp.model.x[0]) ** 2
         + param_manager.get("q_dqh") * (dqh) ** 2
         + param_manager.get("q_ddqh") * (ddqh) ** 2
     )
@@ -255,7 +257,7 @@ def export_parametric_ocp(
     ocp.cost.cost_type_e = "EXTERNAL"
     ocp.model.cost_expr_ext_cost_e = (
         0.25 * param_manager.get("price") * qh
-        + param_manager.get("q_Ti") * (param_manager.get("ref_Ti") - ocp.model.x[0]) ** 2
+        + 10 ** param_manager.get("q_Ti") * (param_manager.get("ref_Ti") - ocp.model.x[0]) ** 2
         + param_manager.get("q_dqh") * (dqh) ** 2
     )
 

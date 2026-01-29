@@ -16,13 +16,13 @@ class HydronicDynamicsParameters:
     (https://ibpsa.github.io/project1-boptest/testcases/ibpsa/testcases_ibpsa_bestest_hydronic/).
 
     Attributes:
+        gAw: Effective window area [m²]
         Ch: Heating system thermal capacity [J/K]
         Ci: Indoor thermal capacity [J/K]
         Ce: External thermal capacity [J/K]
-        Rhi: Resistance heating-indoor [K/W]
-        Rie: Resistance indoor-external [K/W]
         Rea: Resistance external-ambient [K/W]
-        gAw: Effective window area [m²]
+        Rie: Resistance indoor-external [K/W]
+        Rhi: Resistance heating-indoor [K/W]
     """
 
     gAw: float | ca.SX = 10.1265729225269

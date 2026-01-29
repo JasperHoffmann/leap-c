@@ -38,7 +38,7 @@ class HvacEnvConfig:
     thermal_params: HydronicParameters | None = None
     step_size: float = 900.0
     enable_noise: bool = True
-    randomize_params: bool = True
+    randomize_params: bool = False
     param_noise_scale: float = 0.3
     random_seed: int = 0
 
@@ -298,7 +298,7 @@ class StochasticThreeStateRcEnv(MatplotlibRenderEnv):
         elif state[0] > ub:
             constraint_violation += state[0] - ub
 
-        comfort_reward = -constraint_violation ** 2 - abs(constraint_violation)
+        comfort_reward = -(constraint_violation ** 2 + abs(constraint_violation)) / 10.
 
         # Reward for energy saving
         price = self.dataset.get_price(self.idx)[0]
@@ -357,6 +357,13 @@ class StochasticThreeStateRcEnv(MatplotlibRenderEnv):
 
         # Deterministic state update
         x_next = self.Ad @ self.state + self.Bd @ action + self.Ed @ exog
+
+        # Add occupancy heat gains:
+        # - Every weekday from 08:00 to 16:45: +300W
+        day_of_week = self.dataset.index[self.idx].dayofweek  # Monday=0, Sunday=6
+        quarter_hour, _ = self.dataset.get_time_features(self.idx)
+        if day_of_week < 5 and 32 <= quarter_hour <= 67:
+            x_next[0] += (1000.0 * self.cfg.step_size) / (self.cfg.thermal_params.dynamics.Ci)
 
         # Add Gaussian noise if enabled
         if self.cfg.enable_noise:

@@ -205,7 +205,12 @@ class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
                     target = r[:, None] + self.cfg.gamma * (1 - te[:, None]) * q_target
 
                 q = torch.cat(self.q(o, a), dim=1)
-                q_loss = torch.mean((q - target).pow(2))
+                td_error = q - target
+
+                with torch.no_grad():
+                    td_var = torch.var(td_error, dim=0).mean()
+
+                q_loss = torch.mean(td_error.square())
 
                 self.q_optim.zero_grad()
                 q_loss.backward()
@@ -227,6 +232,7 @@ class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
                 # report stats
                 loss_stats = {
                     "q_loss": q_loss.item(),
+                    "td_var": td_var.item(),
                     "pi_loss": pi_loss.item(),
                     "alpha": alpha,
                     "q": q.mean().item(),
