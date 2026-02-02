@@ -1,10 +1,105 @@
 import collections
 import random
+from collections import deque
 from typing import Any, Callable, Union
 
 import torch
 from torch.utils._pytree import tree_map_only
 from torch.utils.data._utils.collate import collate, default_collate_fn_map
+
+
+class NStepTransitionAccumulator:
+    """Accumulates transitions and computes n-step returns.
+
+    Holds up to n transitions and emits completed n-step transitions
+    when either n steps are accumulated or an episode terminates.
+
+    When n=1, acts as a pass-through (standard 1-step TD).
+
+    Attributes:
+        n: Number of steps for n-step returns.
+        gamma: Discount factor.
+        transitions: Buffer holding accumulated transitions.
+    """
+
+    def __init__(self, n: int, gamma: float) -> None:
+        """Initialize the n-step transition accumulator.
+
+        Args:
+            n: Number of steps for n-step returns. Use n=1 for standard 1-step TD.
+            gamma: Discount factor for computing returns.
+        """
+        if n < 1:
+            raise ValueError(f"n must be >= 1, got {n}")
+        self.n = n
+        self.gamma = gamma
+        self.transitions: deque[tuple] = deque(maxlen=n)
+
+    def add(self, transition: tuple) -> list[tuple]:
+        """Add a transition and return any completed n-step transitions.
+
+        Args:
+            transition: Tuple of (obs, action/param, reward, obs_prime, done).
+
+        Returns:
+            List of n-step transitions ready for the replay buffer.
+            Each transition has the same structure but with:
+            - reward replaced by the n-step discounted return
+            - obs_prime replaced by the observation n steps ahead
+            - done indicating if terminal state was reached within n steps
+        """
+        # Short-circuit for n=1 (standard 1-step TD)
+        if self.n == 1:
+            return [transition]
+
+        self.transitions.append(transition)
+        _, _, _, _, done = transition
+
+        if done:
+            return self._flush_all()
+        elif len(self.transitions) == self.n:
+            return [self._pop_first()]
+        return []
+
+    def _compute_n_step_return(self) -> tuple[float, Any, bool]:
+        """Compute discounted return from accumulated transitions.
+
+        Returns:
+            Tuple of (n_step_return, final_obs, final_done).
+        """
+        n_step_return = 0.0
+        for i, (_, _, r, _, _) in enumerate(self.transitions):
+            n_step_return += (self.gamma**i) * r
+
+        # Get final observation and done flag
+        _, _, _, final_obs, final_done = self.transitions[-1]
+        return n_step_return, final_obs, final_done
+
+    def _pop_first(self) -> tuple:
+        """Pop first transition with computed n-step return."""
+        n_step_return, final_obs, final_done = self._compute_n_step_return()
+        obs, action, _, _, _ = self.transitions.popleft()
+        return (obs, action, n_step_return, final_obs, final_done)
+
+    def _flush_all(self) -> list[tuple]:
+        """Flush all remaining transitions at episode end.
+
+        Called when episode terminates to emit all pending transitions
+        with appropriately truncated n-step returns.
+        """
+        results = []
+        while self.transitions:
+            results.append(self._pop_first())
+
+        return results
+
+    def reset(self) -> None:
+        """Clear accumulated transitions.
+
+        Call this when starting a new episode to discard any
+        partial transitions from the previous episode.
+        """
+        self.transitions.clear()
 
 
 def pytree_tensor_to(

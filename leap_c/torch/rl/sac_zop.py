@@ -12,7 +12,7 @@ import torch.nn as nn
 
 from leap_c.controller import CtxType, ParameterizedController
 from leap_c.torch.nn.extractor import ExtractorName, get_extractor_cls
-from leap_c.torch.rl.buffer import ReplayBuffer
+from leap_c.torch.rl.buffer import NStepTransitionAccumulator, ReplayBuffer
 from leap_c.torch.rl.mpc_actor import (
     HierachicalMPCActor,
     HierachicalMPCActorConfig,
@@ -36,6 +36,7 @@ class SacZopTrainerConfig(SacTrainerConfig):
     actor: HierachicalMPCActorConfig = field(
         default_factory=lambda: HierachicalMPCActorConfig(residual=False)
     )
+    n_step: int = 4
 
 
 class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
@@ -72,6 +73,7 @@ class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
     target_entropy: float | None
     entropy_norm: float
     buffer: ReplayBuffer
+    n_step_accumulator: NStepTransitionAccumulator
 
     def __init__(
         self,
@@ -134,6 +136,7 @@ class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
             self.target_entropy = None
 
         self.buffer = ReplayBuffer(cfg.buffer_size, device=device)
+        self.n_step_accumulator = NStepTransitionAccumulator(cfg.n_step, cfg.gamma)
 
     def train_loop(self) -> Generator[tuple[int, float], None, None]:
         is_terminated = is_truncated = True
@@ -145,6 +148,7 @@ class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
                 obs, _ = seed_env(self.train_env, mk_seed(self.rng), {"mode": "train"})
                 policy_ctx = None
                 is_terminated = is_truncated = False
+                self.n_step_accumulator.reset()
 
             obs_batched = self.buffer.collate([obs])
 
@@ -164,7 +168,11 @@ class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
             if "episode" in info or "task" in info:
                 self.report_stats("train", info.get("episode", {}) | info.get("task", {}))
 
-            self.buffer.put((obs, param, reward, obs_prime, is_terminated))
+            n_step_transitions = self.n_step_accumulator.add(
+                (obs, param, reward, obs_prime, is_terminated)
+            )
+            for transition in n_step_transitions:
+                self.buffer.put(transition)
 
             obs = obs_prime
             policy_ctx = pi_output.ctx
@@ -202,10 +210,16 @@ class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
                     factor = self.cfg.entropy_reward_bonus / self.entropy_norm
                     q_target = q_target - alpha * pi_o_prime.log_prob * factor
 
-                    target = r[:, None] + self.cfg.gamma * (1 - te[:, None]) * q_target
+                    gamma_n = self.cfg.gamma**self.cfg.n_step
+                    target = r[:, None] + gamma_n * (1 - te[:, None]) * q_target
 
                 q = torch.cat(self.q(o, a), dim=1)
-                q_loss = torch.mean((q - target).pow(2))
+                td_error = q - target
+
+                with torch.no_grad():
+                    td_var = torch.var(td_error, dim=0).mean()
+
+                q_loss = torch.mean(td_error.square())
 
                 self.q_optim.zero_grad()
                 q_loss.backward()
@@ -227,6 +241,7 @@ class SacZopTrainer(Trainer[SacZopTrainerConfig, CtxType], Generic[CtxType]):
                 # report stats
                 loss_stats = {
                     "q_loss": q_loss.item(),
+                    "td_var": td_var.item(),
                     "pi_loss": pi_loss.item(),
                     "alpha": alpha,
                     "q": q.mean().item(),
