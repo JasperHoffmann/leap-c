@@ -97,21 +97,35 @@ def format_diff_mpc_module_repr(
     N = ocp.solver_options.N_horizon
     nx = ocp.dims.nx
     nu = ocp.dims.nu
+
+    inputs = [
+        ("x0", f"(B, {nx})", "initial states"),
+        ("u0", f"(B, {nu})", "fixates first-stage control (optional)"),
+        ("params", "dict", "parameter overrides (see parameters)"),
+    ]
+    outputs = [
+        ("u0", f"(B, {nu})", "first-stage control solution (= u0 if given)"),
+        ("x", f"(B, {N + 1}, {nx})", "state trajectory solution"),
+        ("u", f"(B, {N}, {nu})", "control trajectory solution"),
+        ("value", "(B, 1)", "cost (V(x0), or Q(x0, u0) when u0 given)"),
+    ]
+    w_name = max(len(name) for name, _, _ in inputs + outputs)
+    w_shape = max(len(shape) for _, shape, _ in inputs + outputs)
+
+    def format_rows(rows):
+        return [f"    {name:<{w_name}}  {shape:<{w_shape}}  {desc}" for name, shape, desc in rows]
+
     sections = format_parameter_sections(parameter_manager)
     sections_indented = "\n".join("  " + line if line else line for line in sections.splitlines())
-    return (
-        f"{class_name}(\n"
-        f"  {format_diff_mpc_module_extra_repr(ocp=ocp, parameter_manager=parameter_manager)}\n"
-        "  inputs:\n"
-        f"    x0       (B, {nx})     initial states\n"
-        f"    u0       (B, {nu})     fixates first-stage control (optional)\n"
-        "    params   dict       parameter overrides (see parameters)\n"
-        "  outputs:\n"
-        f"    u0       (B, {nu})     optimal first-stage control (= u0 if given)\n"
-        f"    x        (B, {N + 1}, {nx})  state trajectory\n"
-        f"    u        (B, {N}, {nu})    control trajectory\n"
-        "    value    (B, 1)      cost (V(x0), or Q(x0, u0) when u0 given)\n"
-        "  parameters:\n"
-        f"{sections_indented}\n"
-        ")"
-    )
+    lines = [
+        f"{class_name}(",
+        f"  {format_diff_mpc_module_extra_repr(ocp=ocp, parameter_manager=parameter_manager)}",
+        "  inputs:",
+        *format_rows(inputs),
+        "  outputs:",
+        *format_rows(outputs),
+        "  parameters:",
+        sections_indented,
+        ")",
+    ]
+    return "\n".join(lines)
